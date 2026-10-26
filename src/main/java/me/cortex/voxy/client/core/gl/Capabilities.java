@@ -109,9 +109,61 @@ public class Capabilities {
         } else {
             this.hasBrokenDepthSampler = false;
         }
+
+        logDriverLimits(cap);
     }
 
     public static void init() {
+    }
+
+    //Logs the driver limits that matter for deciding which rendering paths are usable (mobile/GLES backed drivers
+    // often report 0 for vertex stage storage blocks, small texture buffer sizes etc)
+    private static void logDriverLimits(org.lwjgl.opengl.GLCapabilities cap) {
+        try {
+            glGetError();//Clear any pending error
+            Logger.info("GL_RENDERER: " + glGetString(GL_RENDERER));
+            Logger.info("GL_VENDOR: " + glGetString(GL_VENDOR));
+            Logger.info("GL_VERSION: " + glGetString(GL_VERSION));
+            Logger.info("GL_SHADING_LANGUAGE_VERSION: " + glGetString(GL20C.GL_SHADING_LANGUAGE_VERSION));
+
+            Object[][] limits = {
+                    {"GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS", GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS},
+                    {"GL_MAX_FRAGMENT_SHADER_STORAGE_BLOCKS", GL_MAX_FRAGMENT_SHADER_STORAGE_BLOCKS},
+                    {"GL_MAX_COMPUTE_SHADER_STORAGE_BLOCKS", GL_MAX_COMPUTE_SHADER_STORAGE_BLOCKS},
+                    {"GL_MAX_COMBINED_SHADER_STORAGE_BLOCKS", GL_MAX_COMBINED_SHADER_STORAGE_BLOCKS},
+                    {"GL_MAX_SHADER_STORAGE_BLOCK_SIZE", GL_MAX_SHADER_STORAGE_BLOCK_SIZE},
+                    {"GL_MAX_TEXTURE_BUFFER_SIZE", GL_MAX_TEXTURE_BUFFER_SIZE},
+                    {"GL_MAX_TEXTURE_SIZE", GL_MAX_TEXTURE_SIZE},
+                    {"GL_MAX_ARRAY_TEXTURE_LAYERS", GL_MAX_ARRAY_TEXTURE_LAYERS},
+                    {"GL_MAX_UNIFORM_BLOCK_SIZE", GL_MAX_UNIFORM_BLOCK_SIZE},
+                    {"GL_MAX_VERTEX_UNIFORM_BLOCKS", GL_MAX_VERTEX_UNIFORM_BLOCKS},
+                    {"GL_MAX_VERTEX_ATTRIBS", GL_MAX_VERTEX_ATTRIBS},
+                    {"GL_MAX_VERTEX_ATTRIB_STRIDE", GL_MAX_VERTEX_ATTRIB_STRIDE},
+                    {"GL_MAX_VERTEX_ATTRIB_BINDINGS", GL_MAX_VERTEX_ATTRIB_BINDINGS},
+                    {"GL_MAX_ELEMENT_INDEX", GL_MAX_ELEMENT_INDEX},
+                    {"GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS", GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS},
+                    {"GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS", GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS},
+            };
+            for (var limit : limits) {
+                String name = (String) limit[0];
+                int enumValue = (Integer) limit[1];
+                long value = glGetInteger64(enumValue);
+                int error = glGetError();
+                Logger.info("Limit " + name + " = " + (error == GL_NO_ERROR ? Long.toString(value) : "unsupported (gl error " + error + ")"));
+            }
+            Logger.info("Ext int64=" + describeInt64(cap) + " subgroup=" + cap.GL_KHR_shader_subgroup
+                    + " indirectParameters=" + (cap.glMultiDrawElementsIndirectCountARB != 0)
+                    + " drawParameters=" + cap.GL_ARB_shader_draw_parameters
+                    + " baseInstance=" + cap.GL_ARB_base_instance
+                    + " dsa=" + cap.GL_ARB_direct_state_access);
+        } catch (Throwable e) {
+            //Never let diagnostics take the game down
+            Logger.error("Failed to log driver limits", e);
+        }
+    }
+
+    private static String describeInt64(org.lwjgl.opengl.GLCapabilities cap) {
+        return cap.GL_ARB_gpu_shader_int64 + "/amd=" + cap.GL_AMD_gpu_shader_int64;
     }
 
     private static boolean testDepthSampler() {
