@@ -30,6 +30,10 @@ public final class VertexDataTextures {
     public static final int VISIBILITY_UNIT = 13;
     public static final int LOOKUP_UNIT = 14;
 
+    //The chunk bound (outline) renderer has its own program as well, chunk positions are 8 bytes (RG32UI)
+    public static final int CHUNKPOS_UNIT = 12;
+    public static final int CHUNKPOS_LOG2_WIDTH = 12;
+
     //Section metadata is 32 bytes = 2 RGBA32UI texels, visibility and the indirect lookup are single R32UI texels
     public static final int SECTION_LOG2_WIDTH = 12;
     public static final int VISIBILITY_LOG2_WIDTH = 12;
@@ -65,7 +69,9 @@ public final class VertexDataTextures {
                 .define("LOOKUP_TEXTURE_BINDING", LOOKUP_UNIT)
                 .define("SECTION_TEXTURE_LOG2_WIDTH", SECTION_LOG2_WIDTH)
                 .define("VISIBILITY_TEXTURE_LOG2_WIDTH", VISIBILITY_LOG2_WIDTH)
-                .define("LOOKUP_TEXTURE_LOG2_WIDTH", LOOKUP_LOG2_WIDTH);
+                .define("LOOKUP_TEXTURE_LOG2_WIDTH", LOOKUP_LOG2_WIDTH)
+                .define("CHUNKPOS_TEXTURE_BINDING", CHUNKPOS_UNIT)
+                .define("CHUNKPOS_TEXTURE_LOG2_WIDTH", CHUNKPOS_LOG2_WIDTH);
     }
 
     public static void unbind() {

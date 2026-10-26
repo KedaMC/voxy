@@ -4,6 +4,7 @@ import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import me.cortex.voxy.client.core.AbstractRenderPipeline;
 import me.cortex.voxy.client.core.RenderProperties;
+import me.cortex.voxy.client.core.gl.BufferTextureMirror;
 import me.cortex.voxy.client.core.gl.GlBuffer;
 import me.cortex.voxy.client.core.gl.GlVertexArray;
 import me.cortex.voxy.client.core.gl.shader.AutoBindingShader;
@@ -12,11 +13,13 @@ import me.cortex.voxy.client.core.gl.shader.ShaderLoader;
 import me.cortex.voxy.client.core.gl.shader.ShaderType;
 import me.cortex.voxy.client.core.rendering.util.SharedIndexBuffer;
 import me.cortex.voxy.client.core.rendering.util.UploadStream;
+import me.cortex.voxy.client.core.rendering.util.VertexDataTextures;
 import me.cortex.voxy.common.Logger;
 import net.minecraft.client.Minecraft;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.joml.Vector3i;
+import org.jetbrains.annotations.Nullable;
 import org.lwjgl.system.MemoryUtil;
 
 import static org.lwjgl.opengl.ARBDirectStateAccess.glCopyNamedBufferSubData;
@@ -40,6 +43,10 @@ public class ChunkBoundRenderer {
     private final Shader rasterShader;
     private final RenderProperties properties;
 
+    //Texture copy of the chunk position buffer, only present when the vertex stage cannot read storage buffers
+    private @Nullable BufferTextureMirror chunkPosMirror;
+    private long chunkPosMirrorVersion = -1;
+
     private final LongOpenHashSet addQueue = new LongOpenHashSet();
     private final LongOpenHashSet remQueue = new LongOpenHashSet();
 
@@ -62,9 +69,23 @@ public class ChunkBoundRenderer {
                 .defineIf("TAA", taa != null)
                 .add(ShaderType.FRAGMENT, "voxy:chunkoutline/outline.fsh")
                 .apply(this.properties::apply)
+                .apply(b->{if (VertexDataTextures.enabled()) VertexDataTextures.applyDefines(b);})
                 .compile()
                 .ubo(0, this.uniformBuffer)
                 .ssbo(1, this.chunkPosBuffer);
+
+        this.recreateMirror();
+    }
+
+    private void recreateMirror() {
+        if (!VertexDataTextures.enabled()) {
+            return;
+        }
+        if (this.chunkPosMirror != null) {
+            this.chunkPosMirror.free();
+        }
+        this.chunkPosMirror = new BufferTextureMirror(BufferTextureMirror.Format.RG32UI, VertexDataTextures.CHUNKPOS_LOG2_WIDTH, this.chunkPosBuffer.size() / 8);
+        this.chunkPosMirrorVersion = -1;
     }
 
     public void addSection(long pos) {
@@ -134,6 +155,14 @@ public class ChunkBoundRenderer {
         glBindVertexArray(GlVertexArray.STATIC_VAO);
         viewport.depthBoundingBuffer.bind();
         this.rasterShader.bind();
+        if (this.chunkPosMirror != null) {
+            //The vertex stage cannot read storage buffers, it reads a texture copy instead (uploads were committed above)
+            if (this.chunkPosBuffer.uploadVersion != this.chunkPosMirrorVersion) {
+                this.chunkPosMirror.copyAll(this.chunkPosBuffer);
+                this.chunkPosMirrorVersion = this.chunkPosBuffer.uploadVersion;
+            }
+            this.chunkPosMirror.bind(VertexDataTextures.CHUNKPOS_UNIT);
+        }
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, SharedIndexBuffer.INSTANCE_BB_BYTE.id());
         if (this.pipeline != null) this.pipeline.bindUniforms();//shader TAA
 
@@ -144,6 +173,10 @@ public class ChunkBoundRenderer {
         }
         if (count%32 != 0) {
             glDrawElementsInstancedBaseInstance(GL_TRIANGLES, 6 * 2 * 3 * (count%32), GL_UNSIGNED_BYTE, 0, 1, (count/32)*32);
+        }
+
+        if (this.chunkPosMirror != null) {
+            VertexDataTextures.unbind();
         }
 
         {
@@ -220,6 +253,7 @@ public class ChunkBoundRenderer {
         System.arraycopy(old2, 0, this.idx2chunk, 0, old2.length);
         //Replace the old buffer with the new one
         ((AutoBindingShader)this.rasterShader).ssbo(1, this.chunkPosBuffer);
+        this.recreateMirror();
     }
 
     private void put(int idx, long pos) {
@@ -237,5 +271,8 @@ public class ChunkBoundRenderer {
         this.rasterShader.free();
         this.uniformBuffer.free();
         this.chunkPosBuffer.free();
+        if (this.chunkPosMirror != null) {
+            this.chunkPosMirror.free();
+        }
     }
 }
