@@ -13,6 +13,7 @@ import me.cortex.voxy.client.core.rendering.post.FullscreenBlit;
 import me.cortex.voxy.client.core.rendering.section.backend.AbstractSectionRenderer;
 import me.cortex.voxy.client.core.rendering.util.DepthFramebuffer;
 import me.cortex.voxy.client.core.rendering.util.DownloadStream;
+import me.cortex.voxy.client.core.util.FrameProfiler;
 import me.cortex.voxy.client.core.util.GPUTiming;
 import me.cortex.voxy.common.util.TrackedObject;
 import org.joml.Matrix4f;
@@ -99,11 +100,14 @@ public abstract class AbstractRenderPipeline extends TrackedObject {
     }
 
     public void runPipeline(Viewport<?> viewport, int sourceFrameBuffer, int srcWidth, int srcHeight) {
+        FrameProfiler.start();
         int depthTexture = this.setup(viewport, sourceFrameBuffer, srcWidth, srcHeight);
+        FrameProfiler.mark("setup");
 
         var rs = ((AbstractSectionRenderer)this.sectionRenderer);
         GPUTiming.INSTANCE.marker("RO");
         rs.renderOpaque(viewport);
+        FrameProfiler.mark("renderOpaque");
         var occlusionDebug = VoxyClient.getOcclusionDebugState();
         if (occlusionDebug==0) {
             GPUTiming.INSTANCE.marker("I");
@@ -116,22 +120,27 @@ public abstract class AbstractRenderPipeline extends TrackedObject {
             rs.buildDrawCalls(viewport);
             TimingStatistics.G.stop();
         }
+        FrameProfiler.mark("buildDrawCalls(total)");
 
         GPUTiming.INSTANCE.marker("TP");
         rs.renderTemporal(viewport);
+        FrameProfiler.mark("renderTemporal");
 
         rs.postOpaquePreperation(viewport);
 
         this.postOpaquePreTranslucent(viewport, sourceFrameBuffer);
+        FrameProfiler.mark("postOpaquePreTranslucent");
         GPUTiming.INSTANCE.marker("RT");
 
         if (!this.deferTranslucency) {
             rs.renderTranslucent(viewport);
         }
+        FrameProfiler.mark("renderTranslucent");
         GPUTiming.INSTANCE.marker();
 
         this.finish(viewport, sourceFrameBuffer, srcWidth, srcHeight);
         glBindFramebuffer(GL_FRAMEBUFFER, sourceFrameBuffer);
+        FrameProfiler.frameEnd();
     }
 
     protected void initDepthStencil(int sourceFrameBuffer, int targetFb, int srcWidth, int srcHeight, int width, int height) {
@@ -192,6 +201,7 @@ public abstract class AbstractRenderPipeline extends TrackedObject {
 
         //Compute the mip chain
         viewport.hiZBuffer.buildMipChain(depthBuffer, viewport.width, viewport.height);
+        FrameProfiler.mark("hiz");
 
         do {
             TimingStatistics.main.stop();
@@ -202,10 +212,13 @@ public abstract class AbstractRenderPipeline extends TrackedObject {
             DownloadStream.INSTANCE.tick();
             TimingStatistics.D.stop();
 
+            FrameProfiler.mark("downloadStream");
             this.nodeManager.tick(this.traversal.getNodeBuffer(), this.nodeCleaner);
+            FrameProfiler.mark("nodeManager.tick");
             //glFlush();
 
             this.nodeCleaner.tick(this.traversal.getNodeBuffer());//Probably do this here??
+            FrameProfiler.mark("nodeCleaner.tick");
 
             TimingStatistics.dynamic.stop();
             TimingStatistics.main.start();
@@ -215,6 +228,7 @@ public abstract class AbstractRenderPipeline extends TrackedObject {
             TimingStatistics.F.start();
             this.traversal.doTraversal(viewport);
             TimingStatistics.F.stop();
+            FrameProfiler.mark("traversal");
         } while (this.frexStillHasWork.getAsBoolean());
     }
 

@@ -19,6 +19,7 @@ import me.cortex.voxy.client.core.rendering.util.LightMapHelper;
 import me.cortex.voxy.client.core.rendering.util.SharedIndexBuffer;
 import me.cortex.voxy.client.core.rendering.util.UploadStream;
 import me.cortex.voxy.client.core.rendering.util.VertexDataTextures;
+import me.cortex.voxy.client.core.util.FrameProfiler;
 import me.cortex.voxy.client.core.util.GPUTiming;
 import me.cortex.voxy.common.Logger;
 import me.cortex.voxy.common.world.WorldEngine;
@@ -291,6 +292,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
             glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
         }
 
+        FrameProfiler.mark("md:prep");
         GPUTiming.INSTANCE.marker("OT");
         {//Test occlusion
             this.cullShader.bind();
@@ -330,6 +332,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
             }
         }
 
+        FrameProfiler.mark("md:cullTest(mirrors+draw)");
         GPUTiming.INSTANCE.marker("CG");
 
         {//Generate the commands
@@ -373,6 +376,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
             }
         }
 
+        FrameProfiler.mark("md:cmdgen(+positionMirror)");
         GPUTiming.INSTANCE.marker("TS");
         {//Do translucency sorting
             this.prefixSumShader.bind();

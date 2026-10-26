@@ -1,5 +1,6 @@
 package me.cortex.voxy.client.core.gl;
 
+import me.cortex.voxy.common.Logger;
 import me.cortex.voxy.common.util.TrackedObject;
 
 import static org.lwjgl.opengl.GL11C.*;
@@ -25,6 +26,32 @@ public class BufferTextureMirror extends TrackedObject {
     public final int height;
     private final int bytesPerTexel;
     private final int transferFormat;
+
+    //Statistics for the frame profiler
+    private static long copyCount;
+    private static long copyBytes;
+    private static int errorChecksLeft = 512;
+
+    public static long takeCopyCount() {
+        long v = copyCount; copyCount = 0; return v;
+    }
+
+    public static long takeCopyBytes() {
+        long v = copyBytes; copyBytes = 0; return v;
+    }
+
+    //Checks for (and logs) a gl error for the first copies, an invalid copy would otherwise silently leave stale data
+    private void checkError(String what, long bytes) {
+        copyCount++;
+        copyBytes += bytes;
+        if (errorChecksLeft > 0) {
+            errorChecksLeft--;
+            int error = glGetError();
+            if (error != GL_NO_ERROR) {
+                Logger.error("GL error 0x" + Integer.toHexString(error) + " during mirror copy (" + what + ") of texture " + this.id + " " + this.width + "x" + this.height);
+            }
+        }
+    }
 
     public enum Format {
         R32UI(GL_R32UI, GL_RED_INTEGER, 4),
@@ -89,6 +116,7 @@ public class BufferTextureMirror extends TrackedObject {
             glBindBuffer(GL_PIXEL_UNPACK_BUFFER, source.id);
             glTextureSubImage2D(this.id, 0, 0, fullRows, remainder, 1, this.transferFormat, GL_UNSIGNED_INT, (long) fullRows * this.width * this.bytesPerTexel);
             glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+            this.checkError("tail row " + fullRows, (long) remainder * this.bytesPerTexel);
         }
     }
 
@@ -106,6 +134,7 @@ public class BufferTextureMirror extends TrackedObject {
         glBindBuffer(GL_PIXEL_UNPACK_BUFFER, source.id);
         glTextureSubImage2D(this.id, 0, 0, firstRow, this.width, rowCount, this.transferFormat, GL_UNSIGNED_INT, offset);
         glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+        this.checkError("rows " + firstRow + "+" + rowCount, (long) rowCount * this.width * this.bytesPerTexel);
     }
 
     public void bind(int unit) {
