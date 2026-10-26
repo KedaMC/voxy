@@ -14,10 +14,16 @@
 #define MODEL_BUFFER_BINDING 3
 #define MODEL_COLOUR_BUFFER_BINDING 4
 #define POSITION_SCRATCH_BINDING 5
+#define POSITION_SCRATCH_LOADER
 #define LIGHTING_SAMPLER_BINDING 1
 
 #ifdef USE_SINGLE_TRI
 #define USE_NV_BARRY
+#endif
+
+//On drivers where the vertex stage cannot read storage buffers the data is read from texture mirrors instead
+#ifdef VERTEX_DATA_TEXTURES
+#define USE_DATA_TEXTURES
 #endif
 
 #import <voxy:lod/quad_format.glsl>
@@ -51,8 +57,8 @@ void main() {
     taaOffset = taaShift();
 
     QuadData quad;
-    uvec2 pos = positionBuffer[gl_BaseInstance];
-    setupQuad(quad, quadData[uint(gl_VertexID)>>2], pos, (gl_VertexID&3) == 1);
+    uvec2 pos = loadPosition(uint(gl_BaseInstance));
+    setupQuad(quad, loadQuad(uint(gl_VertexID)>>2), pos, (gl_VertexID&3) == 1);
 
     uint cornerId = gl_VertexID&3;
 

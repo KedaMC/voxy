@@ -564,7 +564,19 @@ public class AsyncNodeManager {
 
                 glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
                 glDispatchCompute(copies, 1, 1);//Execute the copies
-                glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+                glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT|GL_PIXEL_BUFFER_BARRIER_BIT);
+
+                if (store.getQuadMirror() != null) {
+                    //The vertex stage cannot read the geometry buffer directly, so copy the written rows into the texture mirror
+                    // headers are 16 bytes: [arena address, destination element, element count, unused]
+                    long[] ranges = new long[copies * 2];
+                    for (int i = 0; i < copies; i++) {
+                        long header = upload.scratchHeaderBuffer.address + i * 16L;
+                        ranges[i * 2] = Integer.toUnsignedLong(MemoryUtil.memGetInt(header + 4L));
+                        ranges[i * 2 + 1] = Integer.toUnsignedLong(MemoryUtil.memGetInt(header + 8L));
+                    }
+                    store.mirrorGeometryRanges(ranges, copies);
+                }
 
                 TimingStatistics.A.stop();
             }
@@ -586,7 +598,8 @@ public class AsyncNodeManager {
             glUniform1ui(0, count);
             glMemoryBarrier(GL_UNIFORM_BARRIER_BIT|GL_SHADER_STORAGE_BARRIER_BIT);
             glDispatchCompute((count+127)/128, 1, 1);
-            glMemoryBarrier(GL_UNIFORM_BARRIER_BIT|GL_SHADER_STORAGE_BARRIER_BIT);
+            glMemoryBarrier(GL_UNIFORM_BARRIER_BIT|GL_SHADER_STORAGE_BARRIER_BIT|GL_PIXEL_BUFFER_BARRIER_BIT);
+            ((BasicSectionGeometryData) this.geometryData).markSectionsChanged();
         }
         TimingStatistics.B.stop();
 

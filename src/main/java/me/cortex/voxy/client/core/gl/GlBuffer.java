@@ -13,6 +13,8 @@ public class GlBuffer extends TrackedObject {
     public final int id;
     private final long size;
     private final int flags;
+    //Incremented every time the UploadStream queues a write to this buffer, used to detect when a texture mirror is stale
+    public long uploadVersion;
 
     private static int COUNT;
     private static long TOTAL_SIZE;

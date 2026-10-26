@@ -1,11 +1,19 @@
 package me.cortex.voxy.client.core.rendering.section.geometry;
 
+import me.cortex.voxy.client.core.gl.BufferTextureMirror;
 import me.cortex.voxy.client.core.gl.Capabilities;
 import me.cortex.voxy.client.core.gl.GlBuffer;
+import me.cortex.voxy.client.core.rendering.util.VertexDataTextures;
 import me.cortex.voxy.common.Logger;
 import me.cortex.voxy.common.util.ThreadUtils;
+import org.jetbrains.annotations.Nullable;
+
+import java.util.Arrays;
 
 import static org.lwjgl.opengl.ARBSparseBuffer.*;
+import static org.lwjgl.opengl.GL42C.GL_BUFFER_UPDATE_BARRIER_BIT;
+import static org.lwjgl.opengl.GL42C.GL_PIXEL_BUFFER_BARRIER_BIT;
+import static org.lwjgl.opengl.GL42C.glMemoryBarrier;
 import static org.lwjgl.opengl.GL11C.*;
 import static org.lwjgl.opengl.GL15C.GL_ARRAY_BUFFER;
 import static org.lwjgl.opengl.GL15C.glBindBuffer;
@@ -28,6 +36,97 @@ public class BasicSectionGeometryData implements IGeometryData {
         }
         this.geometryBuffer = geometryBuffer;
         this.isExternalGeometryBuffer = true;
+        this.quadMirror = createQuadMirror(geometryBuffer);
+    }
+
+    //Texture copy of the geometry buffer, only present when the vertex stage cannot read storage buffers
+    private final @Nullable BufferTextureMirror quadMirror;
+
+    private static @Nullable BufferTextureMirror createQuadMirror(GlBuffer buffer) {
+        if (!VertexDataTextures.enabled()) {
+            return null;
+        }
+        if (buffer.isSparse()) {
+            throw new IllegalStateException("Sparse geometry buffers cannot be mirrored into a texture");
+        }
+        if ((buffer.size() % VertexDataTextures.QUAD_ROW_BYTES) != 0) {
+            throw new IllegalStateException("Geometry buffer size must be a multiple of " + VertexDataTextures.QUAD_ROW_BYTES + " to be mirrored");
+        }
+        var mirror = new BufferTextureMirror(BufferTextureMirror.Format.RG32UI, VertexDataTextures.QUAD_LOG2_WIDTH, buffer.size() / 8);
+        Logger.info("Created geometry texture mirror " + mirror.width + "x" + mirror.height);
+        return mirror;
+    }
+
+    public @Nullable BufferTextureMirror getQuadMirror() {
+        return this.quadMirror;
+    }
+
+    //Texture copy of the section metadata (2 RGBA32UI texels per section), used by the culling vertex shader
+    private @Nullable BufferTextureMirror sectionMirror;
+    private boolean sectionMirrorDirty = true;
+    private long sectionMirrorVersion = -1;
+
+    /** To be called when the section metadata buffer has been written to by anything other than the upload stream */
+    public void markSectionsChanged() {
+        this.sectionMirrorDirty = true;
+    }
+
+    /** Brings the section metadata texture up to date and binds it, only when the vertex stage cannot read storage buffers */
+    public void bindSectionMirror(int unit) {
+        if (!VertexDataTextures.enabled()) {
+            return;
+        }
+        if (this.sectionMirror == null) {
+            this.sectionMirror = new BufferTextureMirror(BufferTextureMirror.Format.RGBA32UI, VertexDataTextures.SECTION_LOG2_WIDTH, this.sectionMetadataBuffer.size() / 16);
+        }
+        if (this.sectionMirrorDirty || this.sectionMetadataBuffer.uploadVersion != this.sectionMirrorVersion) {
+            glMemoryBarrier(GL_PIXEL_BUFFER_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+            this.sectionMirror.copyAll(this.sectionMetadataBuffer);
+            this.sectionMirrorDirty = false;
+            this.sectionMirrorVersion = this.sectionMetadataBuffer.uploadVersion;
+        }
+        this.sectionMirror.bind(unit);
+    }
+
+    /**
+     * Copies the rows of the geometry buffer that contain the given element ranges into the texture mirror.
+     * Must be called after the writes to the geometry buffer have finished on the gpu (with a pixel buffer barrier).
+     * @param ranges pairs of (firstElement, elementCount), elements being 8 byte quads
+     */
+    public void mirrorGeometryRanges(long[] ranges, int rangeCount) {
+        if (this.quadMirror == null || rangeCount == 0) {
+            return;
+        }
+        //Convert to row ranges (start row << 32 | end row), sort and merge so touching/overlapping ranges become one copy
+        long[] rows = new long[rangeCount];
+        int count = 0;
+        for (int i = 0; i < rangeCount; i++) {
+            long first = ranges[i * 2];
+            long size = ranges[i * 2 + 1];
+            if (size <= 0) continue;
+            long startRow = this.quadMirror.rowOf(first);
+            long endRow = this.quadMirror.rowOf(first + size - 1);
+            rows[count++] = (startRow << 32) | endRow;
+        }
+        if (count == 0) return;
+        Arrays.sort(rows, 0, count);
+        long curStart = rows[0] >>> 32;
+        long curEnd = rows[0] & 0xFFFFFFFFL;
+        for (int i = 1; i <= count; i++) {
+            if (i < count) {
+                long s = rows[i] >>> 32;
+                long e = rows[i] & 0xFFFFFFFFL;
+                if (s <= curEnd + 1) {
+                    curEnd = Math.max(curEnd, e);
+                    continue;
+                }
+                this.quadMirror.copyRows(this.geometryBuffer, (int) curStart, (int) (curEnd - curStart + 1));
+                curStart = s;
+                curEnd = e;
+            } else {
+                this.quadMirror.copyRows(this.geometryBuffer, (int) curStart, (int) (curEnd - curStart + 1));
+            }
+        }
     }
 
     public BasicSectionGeometryData(int maxSectionCount, long geometryCapacity) {
@@ -73,6 +172,7 @@ public class BasicSectionGeometryData implements IGeometryData {
             }
         }
         this.geometryBuffer = buffer;
+        this.quadMirror = createQuadMirror(buffer);
         long delta = System.currentTimeMillis() - start;
         Logger.info("Successfully allocated the geometry buffer in " + delta + "ms");
     }
@@ -121,6 +221,12 @@ public class BasicSectionGeometryData implements IGeometryData {
     @Override
     public void free() {
         this.sectionMetadataBuffer.free();
+        if (this.quadMirror != null) {
+            this.quadMirror.free();
+        }
+        if (this.sectionMirror != null) {
+            this.sectionMirror.free();
+        }
 
         long gpuMemory = 0;
         if (Capabilities.INSTANCE.canQueryGpuMemory) {

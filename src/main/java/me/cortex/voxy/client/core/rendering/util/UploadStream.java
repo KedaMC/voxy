@@ -53,6 +53,7 @@ public class UploadStream {
         long addr = this.rawUploadAddress((int) size);
 
         this.uploadList.add(new UploadData(buffer, addr, destOffset, size));
+        buffer.uploadVersion++;
 
         return this.uploadBuffer.addr() + addr;
     }

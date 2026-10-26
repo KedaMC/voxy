@@ -49,6 +49,10 @@ public class Capabilities {
     public final boolean isAmd;
     public final boolean nvBarryCoords;
     public final boolean hasBrokenDepthSampler;
+    public final int maxVertexStorageBlocks;
+    //True when the vertex stage cannot read shader storage buffers (e.g. Mali/GLES backed drivers report 0 blocks),
+    // in this case the data the vertex shaders need is mirrored into textures
+    public final boolean vertexDataTextures;
 
     public Capabilities() {
         var cap = GL.getCapabilities();
@@ -100,6 +104,18 @@ public class Capabilities {
         }
 
         this.nvBarryCoords = cap.GL_NV_fragment_shader_barycentric;
+
+        glGetError();//Clear any pending error
+        int maxVertexSsbos = glGetInteger(GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS);
+        if (glGetError() != GL_NO_ERROR) {
+            maxVertexSsbos = 0;
+        }
+        this.maxVertexStorageBlocks = maxVertexSsbos;
+        //The terrain vertex shader needs 4 storage blocks, the culling vertex shader 3
+        this.vertexDataTextures = maxVertexSsbos < 4 || Boolean.getBoolean("voxy.forceVertexDataTextures");
+        if (this.vertexDataTextures) {
+            Logger.warn("Vertex shader storage blocks unsupported (limit " + maxVertexSsbos + "), mirroring vertex data into textures");
+        }
 
         if (this.compute&&this.isAmd) {
             this.hasBrokenDepthSampler = testDepthSampler();

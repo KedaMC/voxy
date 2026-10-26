@@ -5,6 +5,12 @@
 #define SECTION_METADATA_BUFFER_BINDING 1
 #define VISIBILITY_BUFFER_BINDING 2
 #define INDIRECT_SECTION_LOOKUP_BINDING 3
+#define VISIBILITY_LOADER
+
+//On drivers where the vertex stage cannot read storage buffers the data is read from texture mirrors instead
+#ifdef VERTEX_DATA_TEXTURES
+#define USE_DATA_TEXTURES
+#endif
 
 #import <voxy:lod/section.glsl>
 #import <voxy:lod/gl46/bindings.glsl>
@@ -19,9 +25,9 @@ vec2 getTAA();
 #endif
 
 void main() {
-    uint sid = indirectLookup[gl_InstanceID];
+    uint sid = loadIndirectLookup(uint(gl_InstanceID));
 
-    SectionMeta section = sectionData[sid];
+    SectionMeta section = loadSection(sid);
 
     uint detail = extractDetail(section);
     ivec3 ipos = extractPosition(section);
@@ -51,7 +57,7 @@ void main() {
     id = sid;
 
     //Me when data race condition between visibilityData in the vert shader and frag shader
-    uint previous = visibilityData[sid]&0x7fffffffu;
+    uint previous = loadVisibility(sid)&0x7fffffffu;
     bool wasVisibleLastFrame = previous==(frameId-1);
     value = (frameId&0x7fffffffu)|(uint(wasVisibleLastFrame)<<31);//Encode if it was visible last frame
 }

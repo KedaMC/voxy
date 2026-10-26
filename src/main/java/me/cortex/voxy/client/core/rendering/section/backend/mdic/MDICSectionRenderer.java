@@ -17,6 +17,7 @@ import me.cortex.voxy.client.core.rendering.util.DownloadStream;
 import me.cortex.voxy.client.core.rendering.util.LightMapHelper;
 import me.cortex.voxy.client.core.rendering.util.SharedIndexBuffer;
 import me.cortex.voxy.client.core.rendering.util.UploadStream;
+import me.cortex.voxy.client.core.rendering.util.VertexDataTextures;
 import me.cortex.voxy.client.core.util.GPUTiming;
 import me.cortex.voxy.common.Logger;
 import me.cortex.voxy.common.world.WorldEngine;
@@ -110,6 +111,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
                 .apply(this.properties::apply)
                 .defineIf("TAA_PATCH", taa != null)
                 .defineIf("DEBUG_RENDER", false)
+                .apply(b->{if (VertexDataTextures.enabled()) VertexDataTextures.applyDefines(b);})
 
                 //.defineIf("USE_NV_JANK", Capabilities.INSTANCE.isNvidia)//TODO: fix use capability to try compile the jank thing to see if it can be and use that
 
@@ -136,6 +138,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
         if (this.pipeline.hasTAA()) {
             this.cullShader = Shader.make()
                     .apply(this.properties::apply)
+                    .apply(b->{if (VertexDataTextures.enabled()) VertexDataTextures.applyDefines(b);})
                     .addSource(ShaderType.VERTEX, ShaderLoader.parse("voxy:lod/gl46/cull/raster.vert")+"\n\n\n\n"+pipeline.taaFunction("getTAA"))
                     .define("TAA")
                     .add(ShaderType.FRAGMENT, "voxy:lod/gl46/cull/raster.frag")
@@ -143,6 +146,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
         } else {
             this.cullShader = Shader.make()
                     .apply(this.properties::apply)
+                    .apply(b->{if (VertexDataTextures.enabled()) VertexDataTextures.applyDefines(b);})
                     .add(ShaderType.VERTEX, "voxy:lod/gl46/cull/raster.vert")
                     .add(ShaderType.FRAGMENT, "voxy:lod/gl46/cull/raster.frag")
                     .compile();
@@ -177,6 +181,13 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, viewport.positionScratchBuffer.id);
         LightMapHelper.bind(1);
         glBindTextureUnit(2, viewport.depthBoundingBuffer.getDepthTex().id);
+
+        if (VertexDataTextures.enabled()) {
+            //The vertex stage cannot read storage buffers, it reads texture copies instead
+            this.modelStore.bindVertexMirrors();
+            this.geometryManager.getQuadMirror().bind(VertexDataTextures.QUAD_UNIT);
+            viewport.positionMirror.bind(VertexDataTextures.POSITION_UNIT);
+        }
 
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, SharedIndexBuffer.INSTANCE.id());
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, viewport.drawCallBuffer.id);
@@ -213,6 +224,9 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
         glBindTextureUnit(0, 0);
         glBindSampler(1, 0);
         glBindTextureUnit(1, 0);
+        if (VertexDataTextures.enabled()) {
+            VertexDataTextures.unbind();
+        }
 
         //RenderLayer.getCutoutMipped().endDrawing();
     }
@@ -251,6 +265,9 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
         glBindTextureUnit(0, 0);
         glBindSampler(1, 0);
         glBindTextureUnit(1, 0);
+        if (VertexDataTextures.enabled()) {
+            VertexDataTextures.unbind();
+        }
 
         glDisable(GL_BLEND);
     }
@@ -291,8 +308,19 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
             glDepthFunc(this.properties.closerEqualDepthCompare());
             glColorMask(false, false, false, false);
             glDepthMask(false);
-            glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT|GL_COMMAND_BARRIER_BIT);
+            glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT|GL_COMMAND_BARRIER_BIT|GL_PIXEL_BUFFER_BARRIER_BIT);
+            if (viewport.visibilityMirror != null) {
+                //The vertex stage cannot read storage buffers, snapshot what it needs into textures
+                this.geometryManager.bindSectionMirror(VertexDataTextures.SECTION_UNIT);
+                viewport.visibilityMirror.copyAll(viewport.visibilityBuffer);
+                viewport.visibilityMirror.bind(VertexDataTextures.VISIBILITY_UNIT);
+                viewport.lookupMirror.copyAll(viewport.indirectLookupBuffer);
+                viewport.lookupMirror.bind(VertexDataTextures.LOOKUP_UNIT);
+            }
             glDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_BYTE, 6*4);
+            if (viewport.visibilityMirror != null) {
+                VertexDataTextures.unbind();
+            }
             glDepthMask(true);
             glColorMask(true, true, true, true);
             glDisable(GL_DEPTH_TEST);
@@ -323,7 +351,12 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
             glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, viewport.drawCountCallBuffer.id);
             glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
             glDispatchComputeIndirect(0);
-            glMemoryBarrier(GL_COMMAND_BARRIER_BIT|GL_SHADER_STORAGE_BARRIER_BIT);
+            glMemoryBarrier(GL_COMMAND_BARRIER_BIT|GL_SHADER_STORAGE_BARRIER_BIT|GL_PIXEL_BUFFER_BARRIER_BIT);
+
+            if (viewport.positionMirror != null) {
+                //The section positions were written by the command generation, copy them for the vertex stage
+                viewport.positionMirror.copyAll(viewport.positionScratchBuffer);
+            }
 
             if (RenderStatistics.enabled) {
                 DownloadStream.INSTANCE.download(this.statisticsBuffer, down->{

@@ -6,6 +6,7 @@ import me.cortex.voxy.client.core.gl.GlTexture;
 import me.cortex.voxy.client.core.model.ModelFactory;
 import me.cortex.voxy.client.core.rendering.section.geometry.BasicSectionGeometryData;
 import me.cortex.voxy.client.core.rendering.section.geometry.IGeometryData;
+import me.cortex.voxy.client.core.rendering.util.VertexDataTextures;
 import me.cortex.voxy.common.Logger;
 import me.cortex.voxy.common.util.ThreadUtils;
 import me.cortex.voxy.common.util.TrackedObject;
@@ -120,6 +121,12 @@ public class RenderResourceReuse {
             limit = Math.max(512*1024*1024, limit);
 
             geometryCapacity = Math.min(geometryCapacity, limit);
+        }
+        if (VertexDataTextures.enabled()) {
+            //The geometry is mirrored into a texture of the same size, so cap it at the max storage block size (128MB on most
+            // mobile drivers) to keep the memory usage down, and keep it a whole number of texture rows
+            geometryCapacity = Math.min(geometryCapacity, Math.max(Capabilities.INSTANCE.ssboMaxSize, 64L*1024*1024));
+            geometryCapacity &= ~((long) VertexDataTextures.QUAD_ROW_BYTES - 1);
         }
         //geometryCapacity = 1<<28;
         //geometryCapacity = 1<<30;//1GB test
