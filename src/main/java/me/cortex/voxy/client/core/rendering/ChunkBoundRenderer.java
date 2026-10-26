@@ -1,5 +1,6 @@
 package me.cortex.voxy.client.core.rendering;
 
+import me.cortex.voxy.common.util.JomlMem;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import me.cortex.voxy.client.core.AbstractRenderPipeline;
@@ -126,7 +127,7 @@ public class ChunkBoundRenderer {
             int bx = (int)(viewport.cameraX);
             int by = (int)(viewport.cameraY);
             int bz = (int)(viewport.cameraZ);
-            new Vector3i(bx, by, bz).getToAddress(ptr); ptr += 4*4;
+            JomlMem.put(new Vector3i(bx, by, bz), ptr); ptr += 4*4;
 
             var negInnerBlock = new Vector3f(
                     (float) (viewport.cameraX - bx),
@@ -134,8 +135,8 @@ public class ChunkBoundRenderer {
                     (float) (viewport.cameraZ - bz));
 
 
-            negInnerBlock.getToAddress(ptr); ptr += 4*3;
-            viewport.MVP.translate(negInnerBlock.negate(), new Matrix4f()).getToAddress(matPtr);
+            JomlMem.put(negInnerBlock, ptr); ptr += 4*3;
+            JomlMem.put(viewport.MVP.translate(negInnerBlock.negate(), new Matrix4f()), matPtr);
             MemoryUtil.memPutFloat(ptr, renderDistance); ptr += 4;
         }
         UploadStream.INSTANCE.commit();

@@ -1,5 +1,6 @@
 package me.cortex.voxy.client.core;
 
+import me.cortex.voxy.common.util.JomlMem;
 import me.cortex.voxy.client.core.gl.Capabilities;
 import me.cortex.voxy.client.core.gl.GlTexture;
 import me.cortex.voxy.client.core.gl.shader.Shader;
@@ -133,18 +134,18 @@ public class SSAO {
             long ptr = stack.nmalloc(4*4*4);
             var scratch = new Matrix4f();
             if (this.isBetterSSAO) {
-                viewport.projection.getToAddress(ptr);
+                JomlMem.put(viewport.projection, ptr);
                 nglUniformMatrix4fv(4, 1, false, ptr);//Proj
-                viewport.projection.invert(scratch).getToAddress(ptr);
+                JomlMem.put(viewport.projection.invert(scratch), ptr);
                 nglUniformMatrix4fv(5, 1, false, ptr);//invProj
-                viewport.modelView.getToAddress(ptr);
+                JomlMem.put(viewport.modelView, ptr);
                 nglUniformMatrix4fv(6, 1, false, ptr);//MV (the normal matrix)
-                viewport.vanillaProjection.invert(scratch).getToAddress(ptr);
+                JomlMem.put(viewport.vanillaProjection.invert(scratch), ptr);
                 nglUniformMatrix4fv(7, 1, false, ptr);//sourceInvProj
             } else {
-                viewport.MVP.getToAddress(ptr);
+                JomlMem.put(viewport.MVP, ptr);
                 nglUniformMatrix4fv(3, 1, false, ptr);//MVP
-                viewport.MVP.invert(scratch).getToAddress(ptr);
+                JomlMem.put(viewport.MVP.invert(scratch), ptr);
                 nglUniformMatrix4fv(4, 1, false, ptr);//invMVP
             }
         }
