@@ -6,6 +6,7 @@ import me.cortex.voxy.common.config.section.SectionSerializationStorage;
 import me.cortex.voxy.common.config.section.SectionStorageConfig;
 import me.cortex.voxy.common.config.storage.other.CompressionStorageAdaptor;
 import me.cortex.voxy.common.config.storage.rocksdb.RocksDBStorageBackend;
+import me.cortex.voxy.common.util.ThreadUtils;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -24,9 +25,17 @@ public class StorageConfigUtil {
         T config = null;
         if (Files.exists(json)) {
             try {
-                config = Serialization.GSON.fromJson(Files.readString(json), clz);
+                var text = Files.readString(json);
+                if (ThreadUtils.isAndroid && text.contains("\"ZSTD\"")) {
+                    //The zstd compressor needs LWJGL natives that do not exist on Android, RocksDB compresses internally
+                    Logger.warn("Storage config uses the ZSTD compressor which is unavailable on Android, resetting it to default");
+                } else {
+                    config = Serialization.GSON.fromJson(text, clz);
+                }
                 if (config == null) {
-                    Logger.error("Config deserialization null, reverting to default");
+                    if (!(ThreadUtils.isAndroid && text.contains("\"ZSTD\""))) {
+                        Logger.error("Config deserialization null, reverting to default");
+                    }
                 } else {
                     if (!verifier.test(config)) {
                         Logger.error("Config section storage null, reverting to default");
@@ -55,6 +64,13 @@ public class StorageConfigUtil {
     public static SectionSerializationStorage.Config createDefaultSerializer() {
         //Create the default config
         var baseDB = new RocksDBStorageBackend.Config();
+
+        if (ThreadUtils.isAndroid) {
+            //No LWJGL zstd natives on Android, RocksDB compresses internally
+            var serializer = new SectionSerializationStorage.Config();
+            serializer.storage = baseDB;
+            return serializer;
+        }
 
         var compressor = new ZSTDCompressor.Config();
         compressor.compressionLevel = 1;

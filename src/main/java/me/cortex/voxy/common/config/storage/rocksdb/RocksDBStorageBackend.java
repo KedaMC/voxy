@@ -8,6 +8,7 @@ import me.cortex.voxy.common.util.MemoryBuffer;
 import me.cortex.voxy.common.world.WorldEngine;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
+import me.cortex.voxy.common.util.ThreadUtils;
 import org.rocksdb.*;
 
 import java.io.File;
@@ -52,7 +53,12 @@ public class RocksDBStorageBackend extends StorageBackend {
             }
         }
          */
-        RocksDB.loadLibrary();
+        try {
+            RocksDB.loadLibrary();
+        } catch (Throwable t) {
+            throw new IllegalStateException("Failed to load the RocksDB native library" +
+                    (ThreadUtils.isAndroid ? ", install the rocksdb native plugin (rocksdb-native-plugin.apk) in the launcher and enable it for this instance" : ""), t);
+        }
 
         //TODO: FIXME: DONT USE THE SAME options PER COLUMN FAMILY
         final ColumnFamilyOptions cfOpts = new ColumnFamilyOptions()
