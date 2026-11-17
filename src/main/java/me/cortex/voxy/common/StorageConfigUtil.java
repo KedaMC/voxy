@@ -1,10 +1,12 @@
 package me.cortex.voxy.common;
 
 import me.cortex.voxy.common.config.Serialization;
+import me.cortex.voxy.common.config.compressors.LZ4Compressor;
 import me.cortex.voxy.common.config.compressors.ZSTDCompressor;
 import me.cortex.voxy.common.config.section.SectionSerializationStorage;
 import me.cortex.voxy.common.config.section.SectionStorageConfig;
 import me.cortex.voxy.common.config.storage.other.CompressionStorageAdaptor;
+import me.cortex.voxy.common.config.storage.file.FileStorageBackend;
 import me.cortex.voxy.common.config.storage.rocksdb.RocksDBStorageBackend;
 import me.cortex.voxy.common.util.ThreadUtils;
 
@@ -66,9 +68,13 @@ public class StorageConfigUtil {
         var baseDB = new RocksDBStorageBackend.Config();
 
         if (ThreadUtils.isAndroid) {
-            //No LWJGL zstd natives on Android, RocksDB compresses internally
+            //No native libraries (rocksdb, lwjgl zstd/lmdb) are available on Android, use the pure java file backend with java lz4
+            var compression = new CompressionStorageAdaptor.Config();
+            compression.delegate = new FileStorageBackend.Config();
+            compression.compressor = new LZ4Compressor.Config();
+
             var serializer = new SectionSerializationStorage.Config();
-            serializer.storage = baseDB;
+            serializer.storage = compression;
             return serializer;
         }
 

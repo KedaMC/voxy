@@ -4,6 +4,7 @@ import me.cortex.voxy.common.config.ConfigBuildCtx;
 import me.cortex.voxy.common.config.section.SectionSerializationStorage;
 import me.cortex.voxy.common.util.MemoryBuffer;
 import me.cortex.voxy.common.util.ResizingThreadLocalMemoryBuffer;
+import me.cortex.voxy.common.util.ThreadUtils;
 import net.jpountz.lz4.LZ4Factory;
 import org.lwjgl.system.MemoryUtil;
 
@@ -13,8 +14,10 @@ public class LZ4Compressor implements StorageCompressor {
     private final net.jpountz.lz4.LZ4Compressor compressor;
     private final net.jpountz.lz4.LZ4FastDecompressor decompressor;
     public LZ4Compressor() {
-        this.decompressor = LZ4Factory.nativeInstance().fastDecompressor();
-        this.compressor = LZ4Factory.nativeInstance().fastCompressor();
+        //The lz4-java jni natives are not available on Android, use the java implementation there
+        var factory = ThreadUtils.isAndroid ? LZ4Factory.fastestJavaInstance() : LZ4Factory.nativeInstance();
+        this.decompressor = factory.fastDecompressor();
+        this.compressor = factory.fastCompressor();
     }
 
     @Override
