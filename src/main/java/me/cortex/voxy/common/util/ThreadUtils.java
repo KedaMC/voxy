@@ -11,7 +11,8 @@ public class ThreadUtils {
     public static final int WIN32_THREAD_MODE_BACKGROUND_BEGIN = 0x00010000;
     public static final int WIN32_THREAD_MODE_BACKGROUND_END = 0x00020000;
     public static final boolean isWindows = Platform.get() == Platform.WINDOWS;
-    public static final boolean isLinux = Platform.get() == Platform.LINUX;
+    public static final boolean isAndroid = detectAndroid();
+    public static final boolean isLinux = Platform.get() == Platform.LINUX && !isAndroid;
     private static final long SetThreadPriority;
     private static final long SetThreadSelectedCpuSetMasks;
     private static final long schedSetaffinity;
@@ -24,18 +25,34 @@ public class ThreadUtils {
             SetThreadSelectedCpuSetMasks = 0;
         }
 
-        if (Platform.get() == Platform.LINUX) {
+        if (Platform.get() == Platform.LINUX && !isAndroid) {
             long fn = 0;
             try {
                 var libc = APIUtil.apiCreateLibrary("libc.so.6");
                 fn = APIUtil.apiGetFunctionAddress(libc, "sched_setaffinity");
-            } catch (Exception e) {
-                Logger.error(e);
+            } catch (Throwable e) {
+                //UnsatisfiedLinkError and friends are Errors, not Exceptions
+                Logger.warn("Unable to load sched_setaffinity, thread affinity disabled: " + e);
             }
             schedSetaffinity = fn;
         } else {
             schedSetaffinity = 0;
         }
+    }
+
+    private static boolean detectAndroid() {
+        try {
+            if (System.getenv("ANDROID_ROOT") != null || System.getenv("ANDROID_DATA") != null) {
+                return true;
+            }
+            for (String key : new String[]{"java.vendor", "java.vm.vendor", "java.vm.name", "java.specification.vendor"}) {
+                String v = System.getProperty(key);
+                if (v != null && v.toLowerCase().contains("android")) {
+                    return true;
+                }
+            }
+        } catch (Throwable ignored) {}
+        return false;
     }
 
     public static boolean SetThreadSelectedCpuSetMasksWin32(long mask) {

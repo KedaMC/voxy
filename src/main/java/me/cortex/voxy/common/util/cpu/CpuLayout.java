@@ -25,6 +25,9 @@ public class CpuLayout {
 
     public static void setThreadAffinity(Affinity... affinities) {
         var platform = Platform.get();
+        if (ThreadUtils.isAndroid) {
+            return;
+        }
         if (platform == Platform.WINDOWS) {
             long[] msks = new long[affinities.length];
             short[] groups = new short[affinities.length];Arrays.fill(groups, (short) -1);
@@ -130,12 +133,14 @@ public class CpuLayout {
     static {
         Core[] cores = null;
         try {
-            if (Platform.get() == Platform.WINDOWS) {
+            if (ThreadUtils.isAndroid) {
+                //Android has no usable oshi/libc topology, use availableProcessors fallback
+            } else if (Platform.get() == Platform.WINDOWS) {
                 cores = generateCoreLayoutWindows();
             } else if (Platform.get() == Platform.LINUX) {
                 cores = generateCoreLayoutLinux();
             }
-        } catch (Exception e) {
+        } catch (Throwable e) {
             Logger.error("Failed to generate cpu core layout, falling back to null: ", e);
         }
         CORES = cores;
