@@ -328,6 +328,7 @@ public class VoxyRenderSystem {
         }
 
         TimingStatistics.all.stop();
+        me.cortex.voxy.client.core.gl.FrameProfiler.endFrame();
 
         //TimingStatistics.I.start();
         //glFlush();

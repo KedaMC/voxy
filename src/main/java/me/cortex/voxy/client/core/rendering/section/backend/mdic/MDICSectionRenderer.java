@@ -29,6 +29,7 @@ import org.lwjgl.system.MemoryUtil;
 
 import java.util.List;
 
+import me.cortex.voxy.client.core.gl.FrameProfiler;
 import static org.lwjgl.opengl.ARBIndirectParameters.GL_PARAMETER_BUFFER_ARB;
 import static org.lwjgl.opengl.ARBIndirectParameters.glMultiDrawElementsIndirectCountARB;
 import static org.lwjgl.opengl.GL11.*;
@@ -211,7 +212,9 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
         if (VoxyClient.getOcclusionDebugState()==3) {
             glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
         }
+        FrameProfiler.begin();
         glMultiDrawElementsIndirectCountARB(GL_TRIANGLES, GL_UNSIGNED_SHORT, indirectOffset, drawCountOffset, maxDrawCount, 0);
+        FrameProfiler.stage("terrainDraw");
         if (VoxyClient.getOcclusionDebugState()==3) {
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         }
@@ -268,7 +271,9 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
     public void buildDrawCalls(MDICViewport viewport) {
         if (this.geometryManager.getSectionCount() == 0) return;
         this.uploadUniformBuffer(viewport);
+        FrameProfiler.begin();
         this.modelStore.syncMirrors();
+        FrameProfiler.stage("modelMirror");
         //Can do a sneeky trick, since the sectionRenderList is a list to things to render, it invokes the culler
         // which only marks visible sections
 
@@ -283,6 +288,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
             glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
         }
 
+        FrameProfiler.stage("prep");
         GPUTiming.INSTANCE.marker("OT");
         {//Test occlusion
             this.cullShader.bind();
@@ -290,6 +296,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
                 MirrorTexture.barrier();
                 viewport.lookupMirror.copyAll(viewport.indirectLookupBuffer);
                 viewport.visibilityMirror.copyRange(viewport.visibilityBuffer, 0, (long) this.geometryManager.getMetadataHighWater() * 4L);
+                FrameProfiler.stage("cullMirrors");
                 this.geometryManager.getMetadataMirror().bind(VertexDataTextures.UNIT_SECTION);
                 viewport.lookupMirror.bind(VertexDataTextures.UNIT_LOOKUP);
                 viewport.visibilityMirror.bind(VertexDataTextures.UNIT_VISIBILITY);
@@ -319,6 +326,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
             }
         }
 
+        FrameProfiler.stage("cullRaster");
         GPUTiming.INSTANCE.marker("CG");
 
         {//Generate the commands
@@ -343,9 +351,11 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
             glDispatchComputeIndirect(0);
             glMemoryBarrier(GL_COMMAND_BARRIER_BIT|GL_SHADER_STORAGE_BARRIER_BIT);
 
+            FrameProfiler.stage("cmdgen");
             if (VertexDataTextures.enabled()) {//The terrain vertex shader reads the draw positions through a texture
                 MirrorTexture.barrier();
                 viewport.positionMirror.copyAll(viewport.positionScratchBuffer);
+                FrameProfiler.stage("positionMirror");
             }
 
             if (RenderStatistics.enabled) {

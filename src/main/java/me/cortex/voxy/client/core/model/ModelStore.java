@@ -68,8 +68,11 @@ public class ModelStore {
 
 
     //Brings the vertex stage copies of the model data up to date
+    private int mirrorTick = 0;
     public void syncMirrors() {
         if (this.modelMirror == null) return;
+        //Model data changes rarely, a full copy every frame is wasteful on mobile
+        if ((this.mirrorTick++ % 15) != 0) return;
         UploadStream.INSTANCE.commit();//Make sure all pending model uploads are in the buffers
         MirrorTexture.barrier();
         this.modelMirror.copyAll(this.modelBuffer);
