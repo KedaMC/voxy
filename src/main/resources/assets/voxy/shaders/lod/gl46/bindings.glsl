@@ -94,6 +94,7 @@ layout(binding = POSITION_SCRATCH_BINDING, std430) POSITION_SCRATCH_ACCESS restr
 
 
 
+#ifdef VERTEX_STAGE_DATA//Defined by the vertex shaders that use the accessors below
 //Vertex stage access to buffer data through mirror textures, for drivers without vertex stage shader storage blocks
 // the *_TEXTURE_BINDING/*_TEXTURE_SHIFT defines come from the application (shift is log2 of the texture width in texels)
 #define TEXEL_FETCH_LINEAR(tex, shift, idx) texelFetch(tex, ivec2(int((idx)&((1u<<(shift))-1u)), int((idx)>>(shift))), 0)
@@ -187,4 +188,6 @@ uint loadVisibility(uint idx) {
 #define LOAD_VISIBILITY(i) loadVisibility(i)
 #else
 #define LOAD_VISIBILITY(i) visibilityData[i]
+#endif
+
 #endif

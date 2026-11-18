@@ -2,6 +2,8 @@
 #extension GL_ARB_gpu_shader_int64 : enable
 #define VISIBILITY_ACCESS
 
+#define VERTEX_STAGE_DATA
+
 #ifndef VERTEX_DATA_TEXTURES
 #define SECTION_METADATA_BUFFER_BINDING 1
 #define VISIBILITY_BUFFER_BINDING 2

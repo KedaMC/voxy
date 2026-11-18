@@ -5,6 +5,8 @@
 #define QUAD_DATA_USE_64_BIT
 #endif
 
+#define VERTEX_STAGE_DATA
+
 
 #ifdef USE_NV_JANK
 #extension GL_NV_gpu_shader5 : enable
