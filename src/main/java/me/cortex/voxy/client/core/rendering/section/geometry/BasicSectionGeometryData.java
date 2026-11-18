@@ -2,6 +2,8 @@ package me.cortex.voxy.client.core.rendering.section.geometry;
 
 import me.cortex.voxy.client.core.gl.Capabilities;
 import me.cortex.voxy.client.core.gl.GlBuffer;
+import me.cortex.voxy.client.core.gl.MirrorTexture;
+import me.cortex.voxy.client.core.gl.VertexDataTextures;
 import me.cortex.voxy.common.Logger;
 import me.cortex.voxy.common.util.ThreadUtils;
 
@@ -19,6 +21,11 @@ public class BasicSectionGeometryData implements IGeometryData {
     private final int maxSectionCount;
     private int currentSectionCount;
 
+    //Copies of the geometry and section metadata for the vertex stage, only present when the vertex stage cannot read shader storage blocks
+    private MirrorTexture geometryMirror;
+    private MirrorTexture metadataMirror;
+    private int metadataHighWater;//One more than the highest section id that has had metadata written
+
     public BasicSectionGeometryData(int maxSectionCount, GlBuffer geometryBuffer) {
         this.maxSectionCount = maxSectionCount;
         this.sectionMetadataBuffer = new GlBuffer((long) maxSectionCount * SECTION_METADATA_SIZE);
@@ -28,6 +35,7 @@ public class BasicSectionGeometryData implements IGeometryData {
         }
         this.geometryBuffer = geometryBuffer;
         this.isExternalGeometryBuffer = true;
+        this.createMirrors();
     }
 
     public BasicSectionGeometryData(int maxSectionCount, long geometryCapacity) {
@@ -75,6 +83,41 @@ public class BasicSectionGeometryData implements IGeometryData {
         this.geometryBuffer = buffer;
         long delta = System.currentTimeMillis() - start;
         Logger.info("Successfully allocated the geometry buffer in " + delta + "ms");
+        this.createMirrors();
+    }
+
+    private void createMirrors() {
+        if (VertexDataTextures.enabled()) {
+            this.geometryMirror = new MirrorTexture("GeometryMirror", this.geometryBuffer.size(), 2, VertexDataTextures.SHIFT_QUAD);
+            this.metadataMirror = new MirrorTexture("SectionMetadataMirror", this.sectionMetadataBuffer.size(), 4, VertexDataTextures.SHIFT_SECTION);
+        }
+    }
+
+    public boolean hasMirrors() {
+        return this.geometryMirror != null;
+    }
+
+    //Call after geometry has been written to the given element range (8 byte elements) of the geometry buffer
+    public void mirrorGeometry(long elementOffset, long elementCount) {
+        this.geometryMirror.copyRange(this.geometryBuffer, elementOffset * 8L, elementCount * 8L);
+    }
+
+    //Call after the metadata of sections upto (and including) maxSectionId has been written
+    public void mirrorMetadata(int maxSectionId) {
+        this.metadataHighWater = Math.max(this.metadataHighWater, maxSectionId + 1);
+        this.metadataMirror.copyRange(this.sectionMetadataBuffer, 0, (long) this.metadataHighWater * SECTION_METADATA_SIZE);
+    }
+
+    public int getMetadataHighWater() {
+        return this.metadataHighWater;
+    }
+
+    public MirrorTexture getGeometryMirror() {
+        return this.geometryMirror;
+    }
+
+    public MirrorTexture getMetadataMirror() {
+        return this.metadataMirror;
     }
 
     private long sparseCommitment = 0;//Tracks the current range of the allocated sparse buffer
@@ -121,6 +164,10 @@ public class BasicSectionGeometryData implements IGeometryData {
     @Override
     public void free() {
         this.sectionMetadataBuffer.free();
+        if (this.geometryMirror != null) {
+            this.geometryMirror.free();
+            this.metadataMirror.free();
+        }
 
         long gpuMemory = 0;
         if (Capabilities.INSTANCE.canQueryGpuMemory) {

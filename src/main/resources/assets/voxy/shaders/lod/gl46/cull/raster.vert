@@ -2,9 +2,11 @@
 #extension GL_ARB_gpu_shader_int64 : enable
 #define VISIBILITY_ACCESS
 
+#ifndef VERTEX_DATA_TEXTURES
 #define SECTION_METADATA_BUFFER_BINDING 1
 #define VISIBILITY_BUFFER_BINDING 2
 #define INDIRECT_SECTION_LOOKUP_BINDING 3
+#endif
 
 #import <voxy:lod/section.glsl>
 #import <voxy:lod/gl46/bindings.glsl>
@@ -19,9 +21,9 @@ vec2 getTAA();
 #endif
 
 void main() {
-    uint sid = indirectLookup[gl_InstanceID];
+    uint sid = LOAD_INDIRECT_LOOKUP(uint(gl_InstanceID));
 
-    SectionMeta section = sectionData[sid];
+    SectionMeta section = LOAD_SECTION(sid);
 
     uint detail = extractDetail(section);
     ivec3 ipos = extractPosition(section);
@@ -51,7 +53,7 @@ void main() {
     id = sid;
 
     //Me when data race condition between visibilityData in the vert shader and frag shader
-    uint previous = visibilityData[sid]&0x7fffffffu;
+    uint previous = LOAD_VISIBILITY(sid)&0x7fffffffu;
     bool wasVisibleLastFrame = previous==(frameId-1);
     value = (frameId&0x7fffffffu)|(uint(wasVisibleLastFrame)<<31);//Encode if it was visible last frame
 }

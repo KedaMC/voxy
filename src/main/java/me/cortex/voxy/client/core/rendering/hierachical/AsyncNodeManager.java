@@ -566,6 +566,14 @@ public class AsyncNodeManager {
                 glDispatchCompute(copies, 1, 1);//Execute the copies
                 glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
+                if (store.hasMirrors()) {//Keep the vertex stage copy of the geometry in sync
+                    me.cortex.voxy.client.core.gl.MirrorTexture.barrier();
+                    for (int i = 0; i < copies; i++) {
+                        long header = upload.scratchHeaderBuffer.address + i * 16L;
+                        store.mirrorGeometry(Integer.toUnsignedLong(MemoryUtil.memGetInt(header + 4L)), Integer.toUnsignedLong(MemoryUtil.memGetInt(header + 8L)));
+                    }
+                }
+
                 TimingStatistics.A.stop();
             }
         }
@@ -587,6 +595,22 @@ public class AsyncNodeManager {
             glMemoryBarrier(GL_UNIFORM_BARRIER_BIT|GL_SHADER_STORAGE_BARRIER_BIT);
             glDispatchCompute((count+127)/128, 1, 1);
             glMemoryBarrier(GL_UNIFORM_BARRIER_BIT|GL_SHADER_STORAGE_BARRIER_BIT);
+
+            var geoStore = (BasicSectionGeometryData)this.geometryData;
+            if (geoStore.hasMirrors()) {//Keep the vertex stage copy of the section metadata in sync
+                int maxSectionId = -1;
+                var keyIter = results.scatterWriteLocationMap.keySet().intIterator();
+                while (keyIter.hasNext()) {
+                    int addr = keyIter.nextInt();
+                    if ((addr & (1 << 31)) != 0) {//Writes to the metadata buffer, 2 uvec4 per section
+                        maxSectionId = Math.max(maxSectionId, (addr & (-1 >>> 1)) >> 1);
+                    }
+                }
+                if (maxSectionId != -1) {
+                    me.cortex.voxy.client.core.gl.MirrorTexture.barrier();
+                    geoStore.mirrorMetadata(maxSectionId);
+                }
+            }
         }
         TimingStatistics.B.stop();
 

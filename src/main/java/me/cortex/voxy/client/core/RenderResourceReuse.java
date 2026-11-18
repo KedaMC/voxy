@@ -112,6 +112,12 @@ public class RenderResourceReuse {
 
         geometryCapacity = Math.max(512*1024*1024, geometryCapacity);//min of 512 mb
 
+        if (Capabilities.INSTANCE.vertexDataTextures) {
+            //The vertex stage reads a texture copy of the geometry (doubling the memory use) and shaders can not access
+            // more than the max storage block size, so keep it small
+            geometryCapacity = Math.min(geometryCapacity, Math.min(Capabilities.INSTANCE.ssboMaxSize, 512L*1024*1024) & ~7L);
+        }
+
         //Limit to available dedicated memory if possible
         if (Capabilities.INSTANCE.canQueryGpuMemory) {
             //512mb less than avalible,

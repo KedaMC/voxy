@@ -10,10 +10,12 @@
 #extension GL_NV_gpu_shader5 : enable
 #endif
 
+#ifndef VERTEX_DATA_TEXTURES
 #define QUAD_BUFFER_BINDING 1
 #define MODEL_BUFFER_BINDING 3
 #define MODEL_COLOUR_BUFFER_BINDING 4
 #define POSITION_SCRATCH_BINDING 5
+#endif
 #define LIGHTING_SAMPLER_BINDING 1
 
 #ifdef USE_SINGLE_TRI
@@ -51,8 +53,8 @@ void main() {
     taaOffset = taaShift();
 
     QuadData quad;
-    uvec2 pos = positionBuffer[gl_BaseInstance];
-    setupQuad(quad, quadData[uint(gl_VertexID)>>2], pos, (gl_VertexID&3) == 1);
+    uvec2 pos = LOAD_POSITION(uint(gl_BaseInstance));
+    setupQuad(quad, LOAD_QUAD(uint(gl_VertexID)>>2), pos, (gl_VertexID&3) == 1);
 
     uint cornerId = gl_VertexID&3;
 

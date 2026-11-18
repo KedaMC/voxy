@@ -20,6 +20,7 @@ import static org.lwjgl.opengl.GL30.GL_DEPTH_STENCIL;
 import static org.lwjgl.opengl.GL30C.GL_MAP_READ_BIT;
 import static org.lwjgl.opengl.GL32.glGetInteger64;
 import static org.lwjgl.opengl.GL43C.GL_MAX_SHADER_STORAGE_BLOCK_SIZE;
+import static org.lwjgl.opengl.GL43C.GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS;
 import static org.lwjgl.opengl.GL44.GL_DYNAMIC_STORAGE_BIT;
 import static org.lwjgl.opengl.GL44.GL_MAP_COHERENT_BIT;
 import static org.lwjgl.opengl.GL45.glClearNamedFramebufferfi;
@@ -49,6 +50,9 @@ public class Capabilities {
     public final boolean isAmd;
     public final boolean nvBarryCoords;
     public final boolean hasBrokenDepthSampler;
+    public final int vertexSsboBlocks;
+    //True when the vertex stage cannot read all the shader storage blocks it needs, vertex data is then read from mirror textures
+    public final boolean vertexDataTextures;
 
     public Capabilities() {
         var cap = GL.getCapabilities();
@@ -84,6 +88,12 @@ public class Capabilities {
 
         this.ssboMaxSize = glGetInteger64(GL_MAX_SHADER_STORAGE_BLOCK_SIZE);
         this.ssboBindingAlignment = glGetInteger(GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT);
+        this.vertexSsboBlocks = glGetInteger(GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS);
+        //The terrain vertex shader needs 4 blocks
+        this.vertexDataTextures = Boolean.getBoolean("voxy.forceVertexDataTextures") || this.vertexSsboBlocks < 4;
+        if (this.vertexDataTextures) {
+            Logger.info("Vertex stage supports " + this.vertexSsboBlocks + " shader storage blocks, reading vertex data from mirror textures");
+        }
 
         this.isMesa = glGetString(GL_VERSION).toLowerCase(Locale.ROOT).contains("mesa");
         var vendor = glGetString(GL_VENDOR).toLowerCase(Locale.ROOT);

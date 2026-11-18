@@ -176,9 +176,9 @@ public abstract class AbstractRenderPipeline extends TrackedObject {
 
         blitShader.bind();
         glBindTextureUnit(0, srcDepthTex);
-        new Matrix4f(viewport.MVP).invert().getToAddress(SCRATCH);
+        me.cortex.voxy.common.util.JomlMem.put(new Matrix4f(viewport.MVP).invert(), SCRATCH);
         nglUniformMatrix4fv(1, 1, false, SCRATCH);//inverse fromProjection
-        targetTransform.getToAddress(SCRATCH);//new Matrix4f(tooProjection).mul(vp.modelView).get(data);
+        me.cortex.voxy.common.util.JomlMem.put(targetTransform, SCRATCH);//new Matrix4f(tooProjection).mul(vp.modelView).get(data);
         nglUniformMatrix4fv(2, 1, false, SCRATCH);//tooProjection
 
         glEnable(GL_DEPTH_TEST);

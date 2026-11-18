@@ -188,21 +188,21 @@ public class HierarchicalOcclusionTraverser {
     private static void setFrustum(Viewport<?> viewport, long ptr) {
         for (int i = 0; i < 6; i++) {
             var plane = viewport.frustumPlanes[i];
-            plane.getToAddress(ptr); ptr += 4*4;
+            me.cortex.voxy.common.util.JomlMem.put(plane, ptr); ptr += 4*4;
         }
     }
 
     private void uploadUniform(Viewport<?> viewport) {
         long ptr = UploadStream.INSTANCE.upload(this.uniformBuffer, 0, 1024);
 
-        viewport.MVP.getToAddress(ptr); ptr += 4*4*4;
+        me.cortex.voxy.common.util.JomlMem.put(viewport.MVP, ptr); ptr += 4*4*4;
 
-        viewport.section.getToAddress(ptr); ptr += 4*3;
+        me.cortex.voxy.common.util.JomlMem.put(viewport.section, ptr); ptr += 4*3;
 
         //MemoryUtil.memPutFloat(ptr, viewport.width); ptr += 4;
         MemoryUtil.memPutInt(ptr, viewport.hiZBuffer.getPackedLevels()); ptr += 4;
 
-        viewport.innerTranslation.getToAddress(ptr); ptr += 4*3;
+        me.cortex.voxy.common.util.JomlMem.put(viewport.innerTranslation, ptr); ptr += 4*3;
 
         //MemoryUtil.memPutFloat(ptr, viewport.height); ptr += 4;
 

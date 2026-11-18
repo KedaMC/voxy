@@ -7,6 +7,8 @@ import me.cortex.voxy.client.core.AbstractRenderPipeline;
 import me.cortex.voxy.client.core.gl.Capabilities;
 import me.cortex.voxy.client.core.gl.GlBuffer;
 import me.cortex.voxy.client.core.gl.GlVertexArray;
+import me.cortex.voxy.client.core.gl.MirrorTexture;
+import me.cortex.voxy.client.core.gl.VertexDataTextures;
 import me.cortex.voxy.client.core.gl.shader.Shader;
 import me.cortex.voxy.client.core.gl.shader.ShaderLoader;
 import me.cortex.voxy.client.core.gl.shader.ShaderType;
@@ -116,6 +118,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
                 //.defineIf("USE_NV_BARRY", Capabilities.INSTANCE.nvBarryCoords)
 
                 .addSource(ShaderType.VERTEX, vertex);
+        VertexDataTextures.applyTerrain(builder);
 
         //Apply per face tinting
         addDirectionalFaceTint(builder, Minecraft.getInstance().level);
@@ -133,16 +136,17 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
 
         this.translucentTerrainShader = tryCompilePatchedOrNormal(builder.define("TRANSLUCENT"), translucentFrag, frag);
 
+        var cullBuilder = Shader.make()
+                .apply(this.properties::apply);
+        VertexDataTextures.applyCull(cullBuilder);
         if (this.pipeline.hasTAA()) {
-            this.cullShader = Shader.make()
-                    .apply(this.properties::apply)
+            this.cullShader = cullBuilder
                     .addSource(ShaderType.VERTEX, ShaderLoader.parse("voxy:lod/gl46/cull/raster.vert")+"\n\n\n\n"+pipeline.taaFunction("getTAA"))
                     .define("TAA")
                     .add(ShaderType.FRAGMENT, "voxy:lod/gl46/cull/raster.frag")
                     .compile();
         } else {
-            this.cullShader = Shader.make()
-                    .apply(this.properties::apply)
+            this.cullShader = cullBuilder
                     .add(ShaderType.VERTEX, "voxy:lod/gl46/cull/raster.vert")
                     .add(ShaderType.FRAGMENT, "voxy:lod/gl46/cull/raster.frag")
                     .compile();
@@ -154,16 +158,16 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
         
         var mat = new Matrix4f(viewport.MVP);
         mat.translate(-viewport.innerTranslation.x, -viewport.innerTranslation.y, -viewport.innerTranslation.z);
-        mat.getToAddress(ptr); ptr += 4*4*4;
+        me.cortex.voxy.common.util.JomlMem.put(mat, ptr); ptr += 4*4*4;
 
-        viewport.section.getToAddress(ptr); ptr += 4*3;
+        me.cortex.voxy.common.util.JomlMem.put(viewport.section, ptr); ptr += 4*3;
 
         if (viewport.frameId<0) {
             Logger.error("Frame ID negative, this will cause things to break, wrapping around");
             viewport.frameId &= 0x7fffffff;
         }
         MemoryUtil.memPutInt(ptr, viewport.frameId&0x7fffffff); ptr += 4;
-        viewport.innerTranslation.getToAddress(ptr); ptr += 4*3;
+        me.cortex.voxy.common.util.JomlMem.put(viewport.innerTranslation, ptr); ptr += 4*3;
 
         UploadStream.INSTANCE.commit();
     }
@@ -175,6 +179,11 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, this.geometryManager.getMetadataBuffer().id);
         this.modelStore.bind(3, 4, 0);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, viewport.positionScratchBuffer.id);
+        if (VertexDataTextures.enabled()) {//The vertex stage reads its data through these instead of the storage blocks
+            this.geometryManager.getGeometryMirror().bind(VertexDataTextures.UNIT_QUAD);
+            viewport.positionMirror.bind(VertexDataTextures.UNIT_POSITION);
+            this.modelStore.bindMirrors();
+        }
         LightMapHelper.bind(1);
         glBindTextureUnit(2, viewport.depthBoundingBuffer.getDepthTex().id);
 
@@ -259,6 +268,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
     public void buildDrawCalls(MDICViewport viewport) {
         if (this.geometryManager.getSectionCount() == 0) return;
         this.uploadUniformBuffer(viewport);
+        this.modelStore.syncMirrors();
         //Can do a sneeky trick, since the sectionRenderList is a list to things to render, it invokes the culler
         // which only marks visible sections
 
@@ -276,6 +286,14 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
         GPUTiming.INSTANCE.marker("OT");
         {//Test occlusion
             this.cullShader.bind();
+            if (VertexDataTextures.enabled()) {//Snapshot of the buffers the cull vertex shader reads
+                MirrorTexture.barrier();
+                viewport.lookupMirror.copyAll(viewport.indirectLookupBuffer);
+                viewport.visibilityMirror.copyRange(viewport.visibilityBuffer, 0, (long) this.geometryManager.getMetadataHighWater() * 4L);
+                this.geometryManager.getMetadataMirror().bind(VertexDataTextures.UNIT_SECTION);
+                viewport.lookupMirror.bind(VertexDataTextures.UNIT_LOOKUP);
+                viewport.visibilityMirror.bind(VertexDataTextures.UNIT_VISIBILITY);
+            }
             if (this.pipeline.hasTAA()) this.pipeline.bindUniforms();//Used for shader TAA
             if (Capabilities.INSTANCE.repFragTest) {
                 glEnable(GL_REPRESENTATIVE_FRAGMENT_TEST_NV);
@@ -324,6 +342,11 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
             glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
             glDispatchComputeIndirect(0);
             glMemoryBarrier(GL_COMMAND_BARRIER_BIT|GL_SHADER_STORAGE_BARRIER_BIT);
+
+            if (VertexDataTextures.enabled()) {//The terrain vertex shader reads the draw positions through a texture
+                MirrorTexture.barrier();
+                viewport.positionMirror.copyAll(viewport.positionScratchBuffer);
+            }
 
             if (RenderStatistics.enabled) {
                 DownloadStream.INSTANCE.download(this.statisticsBuffer, down->{

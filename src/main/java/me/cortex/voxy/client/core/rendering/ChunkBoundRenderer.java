@@ -6,6 +6,8 @@ import me.cortex.voxy.client.core.AbstractRenderPipeline;
 import me.cortex.voxy.client.core.RenderProperties;
 import me.cortex.voxy.client.core.gl.GlBuffer;
 import me.cortex.voxy.client.core.gl.GlVertexArray;
+import me.cortex.voxy.client.core.gl.MirrorTexture;
+import me.cortex.voxy.client.core.gl.VertexDataTextures;
 import me.cortex.voxy.client.core.gl.shader.AutoBindingShader;
 import me.cortex.voxy.client.core.gl.shader.Shader;
 import me.cortex.voxy.client.core.gl.shader.ShaderLoader;
@@ -35,6 +37,10 @@ public class ChunkBoundRenderer {
     private static final int INIT_MAX_CHUNK_COUNT = 1<<12;
     private GlBuffer chunkPosBuffer = new GlBuffer(INIT_MAX_CHUNK_COUNT*8);//Stored as ivec2
     private final GlBuffer uniformBuffer = new GlBuffer(128);
+    //Copy of the chunk positions for the vertex stage, only present when the vertex stage cannot read shader storage blocks
+    private MirrorTexture chunkPosMirror;
+    private int mirrorDirtyMin = Integer.MAX_VALUE;
+    private int mirrorDirtyMax = -1;
     private final Long2IntOpenHashMap chunk2idx = new Long2IntOpenHashMap(INIT_MAX_CHUNK_COUNT);
     private long[] idx2chunk = new long[INIT_MAX_CHUNK_COUNT];
     private final Shader rasterShader;
@@ -57,14 +63,22 @@ public class ChunkBoundRenderer {
             this.pipeline = null;
         }
 
+        if (VertexDataTextures.enabled()) {
+            this.chunkPosMirror = new MirrorTexture("ChunkPosMirror", this.chunkPosBuffer.size(), 2, VertexDataTextures.SHIFT_CHUNK_POS);
+        }
+
         this.rasterShader = Shader.makeAuto()
                 .addSource(ShaderType.VERTEX, vert)
                 .defineIf("TAA", taa != null)
                 .add(ShaderType.FRAGMENT, "voxy:chunkoutline/outline.fsh")
                 .apply(this.properties::apply)
+                .apply(VertexDataTextures::applyChunkOutline)
                 .compile()
                 .ubo(0, this.uniformBuffer)
                 .ssbo(1, this.chunkPosBuffer);
+        if (this.chunkPosMirror != null) {
+            ((AutoBindingShader)this.rasterShader).texture(VertexDataTextures.UNIT_CHUNK_POS, 0, this.chunkPosMirror.texture);
+        }
     }
 
     public void addSection(long pos) {
@@ -90,6 +104,8 @@ public class ChunkBoundRenderer {
             }
         }
 
+        this.syncMirror();
+
         if (this.chunk2idx.isEmpty() && this.addQueue.isEmpty()) return;
 
         viewport.depthBoundingBuffer.clear(this.properties.inverseClearDepth());
@@ -105,7 +121,7 @@ public class ChunkBoundRenderer {
             int bx = (int)(viewport.cameraX);
             int by = (int)(viewport.cameraY);
             int bz = (int)(viewport.cameraZ);
-            new Vector3i(bx, by, bz).getToAddress(ptr); ptr += 4*4;
+            me.cortex.voxy.common.util.JomlMem.put(new Vector3i(bx, by, bz), ptr); ptr += 4*4;
 
             var negInnerBlock = new Vector3f(
                     (float) (viewport.cameraX - bx),
@@ -113,8 +129,8 @@ public class ChunkBoundRenderer {
                     (float) (viewport.cameraZ - bz));
 
 
-            negInnerBlock.getToAddress(ptr); ptr += 4*3;
-            viewport.MVP.translate(negInnerBlock.negate(), new Matrix4f()).getToAddress(matPtr);
+            me.cortex.voxy.common.util.JomlMem.put(negInnerBlock, ptr); ptr += 4*3;
+            me.cortex.voxy.common.util.JomlMem.put(viewport.MVP.translate(negInnerBlock.negate(), new Matrix4f()), matPtr);
             MemoryUtil.memPutFloat(ptr, renderDistance); ptr += 4;
         }
         UploadStream.INSTANCE.commit();
@@ -161,7 +177,18 @@ public class ChunkBoundRenderer {
             this.addQueue.forEach(this::_addPos);//TODO: REPLACE WITH SCATTER COMPUTE
             this.addQueue.clear();
             UploadStream.INSTANCE.commit();
+            this.syncMirror();
         }
+    }
+
+    //Copies the changed chunk positions into the vertex stage copy
+    private void syncMirror() {
+        if (this.chunkPosMirror == null || this.mirrorDirtyMax < this.mirrorDirtyMin) return;
+        UploadStream.INSTANCE.commit();
+        MirrorTexture.barrier();
+        this.chunkPosMirror.copyRange(this.chunkPosBuffer, 8L * this.mirrorDirtyMin, 8L * (this.mirrorDirtyMax - this.mirrorDirtyMin + 1));
+        this.mirrorDirtyMin = Integer.MAX_VALUE;
+        this.mirrorDirtyMax = -1;
     }
 
     private void _remPos(long pos) {
@@ -220,9 +247,18 @@ public class ChunkBoundRenderer {
         System.arraycopy(old2, 0, this.idx2chunk, 0, old2.length);
         //Replace the old buffer with the new one
         ((AutoBindingShader)this.rasterShader).ssbo(1, this.chunkPosBuffer);
+        if (this.chunkPosMirror != null) {
+            this.chunkPosMirror.free();
+            this.chunkPosMirror = new MirrorTexture("ChunkPosMirror", this.chunkPosBuffer.size(), 2, VertexDataTextures.SHIFT_CHUNK_POS);
+            MirrorTexture.barrier();
+            this.chunkPosMirror.copyRange(this.chunkPosBuffer, 0, old2.length * 8L);
+            ((AutoBindingShader)this.rasterShader).texture(VertexDataTextures.UNIT_CHUNK_POS, 0, this.chunkPosMirror.texture);
+        }
     }
 
     private void put(int idx, long pos) {
+        this.mirrorDirtyMin = Math.min(this.mirrorDirtyMin, idx);
+        this.mirrorDirtyMax = Math.max(this.mirrorDirtyMax, idx);
         long ptr2 = UploadStream.INSTANCE.upload(this.chunkPosBuffer, 8L*idx, 8);
         //Need to do it in 2 parts because ivec2 is 2 parts
         MemoryUtil.memPutInt(ptr2, (int)(pos&0xFFFFFFFFL)); ptr2 += 4;
@@ -237,5 +273,8 @@ public class ChunkBoundRenderer {
         this.rasterShader.free();
         this.uniformBuffer.free();
         this.chunkPosBuffer.free();
+        if (this.chunkPosMirror != null) {
+            this.chunkPosMirror.free();
+        }
     }
 }

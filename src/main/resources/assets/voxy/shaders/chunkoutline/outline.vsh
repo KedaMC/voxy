@@ -8,9 +8,19 @@ layout(binding = 0, std140) uniform SceneUniform {
     vec4 negInnerBlock;
 };
 
+#ifdef CHUNK_POS_TEXTURE_BINDING
+layout(binding = CHUNK_POS_TEXTURE_BINDING) uniform highp usampler2D chunkPosTexture;
+ivec2 loadChunkPos(uint idx) {
+    return ivec2(texelFetch(chunkPosTexture, ivec2(int(idx&((1u<<CHUNK_POS_TEXTURE_SHIFT)-1u)), int(idx>>CHUNK_POS_TEXTURE_SHIFT)), 0).xy);
+}
+#else
 layout(binding = 1, std430) restrict readonly buffer ChunkPosBuffer {
     ivec2[] chunkPos;
 };
+ivec2 loadChunkPos(uint idx) {
+    return chunkPos[idx];
+}
+#endif
 
 ivec3 unpackPos(ivec2 pos) {
     return ivec3(pos.y>>10, (pos.x<<12)>>12, ((pos.y<<22)|int(uint(pos.x)>>10))>>10);
@@ -30,7 +40,7 @@ vec2 getTAA();
 void main() {
     uint id = (gl_InstanceID<<5)+gl_BaseInstance+(gl_VertexID>>3);
 
-    ivec3 origin = unpackPos(chunkPos[id])*16;
+    ivec3 origin = unpackPos(loadChunkPos(id))*16;
     origin -= cameraBlockPos.xyz;
 
     if (!shouldRender(origin)) {
